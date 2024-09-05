@@ -1,7 +1,7 @@
 # main.py
 import sys
+
 from backup_restore.adapters.api import create_api
-from backup_restore.adapters.cli import create_cli
 
 
 def main():
@@ -17,9 +17,6 @@ def main():
             port=8000,
             reload=True,
         )
-    else:
-        print("Running in CLI mode")
-        create_cli()
 
 
 if __name__ == "__main__":

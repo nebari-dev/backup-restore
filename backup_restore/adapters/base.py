@@ -1,8 +1,5 @@
-import json
-import os
-from typing import Any, Callable, Dict, Optional, Type
-
-from backup_restore.core.base import ConfigManager, Manager
+# adapters/base.py
+from backup_restore.core.base import Manager
 
 
 class AdaptersBaseFactory:

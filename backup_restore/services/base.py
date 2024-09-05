@@ -1,5 +1,7 @@
-from abc import ABC
+# services/base.py
+from abc import ABC, abstractmethod
 from typing import Any, Dict, List
+import uuid
 
 import requests
 from pydantic import BaseModel, Field
@@ -18,6 +20,7 @@ class State(BaseModel):
 
     schemas: Dict[str, Any] = Field(default_factory=dict)
     dependencies: Dict[str, List[str]] = Field(default_factory=dict)
+    id: str = Field(default_factory=str)
 
     def __init__(self, **data):
         """
@@ -26,6 +29,13 @@ class State(BaseModel):
         """
         super().__init__(**data)
         self._initialize_schemas_and_dependencies()
+        self.id = self._generate_id()
+
+    def _generate_id(self):
+        """
+        Generate a unique identifier for the State object.
+        """
+        return uuid.uuid4().hex
 
     def _initialize_schemas_and_dependencies(self):
         """
@@ -39,7 +49,9 @@ class State(BaseModel):
             self.schemas[field_name] = getattr(self, field_name)
 
             # Extract dependencies from the field's extra metadata
-            self.dependencies[field_name] = getattr(field_info, "depends_on", [])
+            self.dependencies[field_name] = (
+                getattr(field_info, "json_schema_extra", {}) or {}
+            ).get("depends_on", [])
 
     class Config:
         arbitrary_types_allowed = True
@@ -54,7 +66,9 @@ class StateValidator:
     def __validator__(self):
         print(f"Validating {self.locator} state... methods and dependencies")
         if self.locator is None:
-            return
+            raise ValueError(
+                f"Validation error, missing state locator for {self.__class__.__name__}"
+            )
 
         locator = f"_{self.locator}_"
         _methods = [method for method in dir(self) if method.startswith(locator)]
@@ -99,6 +113,16 @@ class Service(ABC):
         self.importer = Import(self.state)
         self.exporter = Export(self.state)
 
+    @abstractmethod
+    def backup(self, storage_client, **kwargs) -> None:
+        """Abstract method for backing up the service data."""
+        pass
+
+    @abstractmethod
+    def restore(self, storage_client, **kwargs) -> None:
+        """Abstract method for restoring the service data."""
+        pass
+
 
 # TODO: to be replaced or removed (as we now have an API client class)
 class APIService(Service):
@@ -116,11 +140,6 @@ class APIService(Service):
         super().__init__()
         self.auth = auth or self.config.get("auth", {})
         self.token = None
-
-    # @abstractmethod
-    # def authenticate(self) -> None:
-    #     """Abstract method for authenticating with the service."""
-    #     pass
 
     def get(self, endpoint: str, **kwargs):
         """
@@ -168,31 +187,3 @@ class APIService(Service):
         if content_type:
             headers["Content-Type"] = content_type
         return headers
-
-
-if __name__ == "__main__":
-    # Define a simple state class with schemas and dependencies
-    class MyState(State):
-        user: str
-        profile: str
-        settings: str
-
-    # Run Export class (expected to raise an error due to missing methods)
-    try:
-        export = Export(MyState(user="user", profile="profile", settings="settings"))
-    except ValueError as e:
-        print(f"Error: {e}")
-
-    # Now define the missing methods
-    class MyExport(Export):
-        def _export_user(self):
-            print("Exporting user data...")
-
-        def _export_profile(self):
-            print("Exporting profile data...")
-
-        def _export_settings(self):
-            print("Exporting settings data...")
-
-    # Run Export class again (expected to succeed)
-    export = MyExport(MyState(user="user", profile="profile", settings="settings"))

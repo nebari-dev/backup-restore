@@ -1,27 +1,53 @@
+# core/base.py
 import json
 import os
 import warnings
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List
 
 import yaml
+from pydantic import BaseModel
+
 from backup_restore import services
+from backup_restore.services.base import Service
+
+ALL_SERVICES = services.__all__
+
+
+class ServiceSnapshotMetadata(BaseModel):
+    name: str
+    type: str
+    version: str
+    priority: int
+    data: str
+
+
+class SnapshotMetadata(BaseModel):
+    backup_and_restore_version: str
+    snapshot_id: str
+    description: str
+    created_at: str
+    services: List[ServiceSnapshotMetadata]
 
 
 class ConfigManager:
     def __init__(self, config_dir: str):
         self.config_dir = config_dir
         self.config = self.load_config()
-        print(f"Loaded config: {self.config}")
+        # print(f"Loaded config: {self.config}")
 
     def get_config_by_service_name(self, service_name: str) -> Dict[str, Any]:
-        print(f"Getting config for {service_name}")
+        # print(f"Getting config for {service_name}")
         return self.config.get(service_name, {})
 
     def load_config(self) -> Dict[str, Any]:
         config = {}
 
+        # Check if config directory exists
+        if not os.path.exists(self.config_dir):
+            raise FileNotFoundError(f"Config directory {self.config_dir} not found.")
+
         yaml_config_path = os.path.join(self.config_dir, "services.yaml")
-        if os.path.exists(yaml_config_path):
+        if os.path.isfile(yaml_config_path):
             warnings.warn(
                 "Found 'services.yaml'. This file will take precedence over individual JSON files. "
                 "Avoid storing secrets in this file."
@@ -52,20 +78,25 @@ class Manager:
         self.config_manager = config_manager
         self.services = self._load_services()
 
-    def _load_services(self) -> Dict[str, Any]:
+    def _get_service_by_name(self, service_name: str) -> Service:
+        return getattr(services, service_name)
+
+    def _load_services(self) -> Dict[str, Service]:
         services_dict = {}
 
-        for service_name in services.__all__:
-            service_class = getattr(services, service_name)
+        for service_name in ALL_SERVICES:
+            service_class = self._get_service_by_name(service_name)
+
             if callable(service_class):
                 service_config = self.config_manager.get_config_by_service_name(
                     service_class.name
                 )
-                print(f"Service config for {service_class.name}: {service_config}")
                 try:
                     service_instance = service_class(config=service_config)
+
                     if hasattr(service_instance, "name"):
                         services_dict[service_instance.name] = service_instance
+
                 except ValueError as e:
                     print(f"Error initializing service {service_name}: {e}")
 

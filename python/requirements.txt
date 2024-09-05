@@ -1,5 +1,0 @@
-uvicorn
-fastapi
-typer
-requests
-requests-cache
