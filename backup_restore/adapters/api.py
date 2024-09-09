@@ -1,9 +1,9 @@
 # adapters/api.py
 import inspect
 import os
-from functools import partial
+from functools import partial, wraps
 
-from fastapi import APIRouter, Depends, FastAPI, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, Request, Response, BackgroundTasks
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -61,9 +61,21 @@ class ServiceAPIFactory(AdaptersBaseFactory):
     def create_main_router(self) -> APIRouter:
         main_router = APIRouter()
 
+        def background_task_wrapper(func):
+            @wraps(func)
+            def wrapper(
+                *args, background_tasks: BackgroundTasks = BackgroundTasks(), **kwargs
+            ):
+                # Pass along all original arguments and inject BackgroundTasks
+                background_tasks.add_task(func, *args, **kwargs)
+                return {"status": 202}
+
+            return wrapper
+
         # Register root route from the manager
         main_router.add_api_route(
             "/",
+            # background_task_wrapper(getattr(self.manager, self.operation)),
             getattr(self.manager, self.operation),
             methods=["POST"],
             tags=[self.operation],

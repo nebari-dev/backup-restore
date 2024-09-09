@@ -1,5 +1,11 @@
 #  services/keycloak.py
+import asyncio
+from collections import defaultdict, deque
+import inspect
 import json
+import os
+import shutil
+from tempfile import TemporaryDirectory
 import uuid
 from http.client import HTTPException
 from typing import Any, Dict, List, Optional
@@ -424,4 +430,83 @@ class KeycloakService(Service):
         return super().restore(storage_client, **kwargs)
 
     def backup(self, storage_client, tar=False) -> None:
-        return super().backup(storage_client, tar)
+        try:
+            with TemporaryDirectory(prefix="keycloak_backup_") as temp_dir:
+                print(f"Exporting Keycloak data to {temp_dir}...")
+                self._export_data(temp_dir)
+                if tar:
+                    self._create_tar_archive(temp_dir)
+                # this needs refactor, as the storage_client should've already been
+                # initialized with the bucket naming, and we should be able to pass a
+                # locator (service_name) that in theory would correlate to the current snapshot
+                storage_client.upload(bucket_name=self.name, dir=temp_dir, tar=tar)
+        except Exception as e:
+            raise RuntimeError(f"Backup failed: {e}")
+
+    def _dump_to_file(self, path: str, data: dict) -> None:
+        with open(path, "w") as f:
+            f.write(json.dumps(data, indent=2))
+
+    def _export_data(self, temp_dir: str) -> None:
+        print("Exporting Keycloak data...")
+        for object_name, data in self._generate_export_data():
+            dump_path = os.path.join(temp_dir, f"{object_name}.json")
+            self._dump_to_file(dump_path, data)
+
+    def _generate_export_data(self):
+        print("Generating export data...")
+        _export_sequence = self._build_reconciliation_sequence("_export")
+        print(f"Export sequence: {_export_sequence}")
+        for method_name in _export_sequence:
+            object_name = method_name.split("_")[-1]
+            # handles async method execution
+            if inspect.iscoroutinefunction(getattr(self.exporter, method_name)):
+                # run async method in sync context
+                data = asyncio.run(getattr(self.exporter, method_name)())
+            else:
+                data = getattr(self.exporter, method_name)()
+            print(f"Exported {object_name} :: {data}")
+            yield object_name, data
+
+    def _create_tar_archive(self, temp_dir: str) -> None:
+        try:
+            shutil.make_archive(temp_dir, "gztar", temp_dir)
+        except Exception as e:
+            raise RuntimeError(f"Failed to create tar archive: {e}")
+
+    def _build_reconciliation_sequence(self, prefix: str) -> List[str]:
+        dependency_graph = self._build_dependency_graph()
+        sorted_sequence = self._topological_sort(dependency_graph)
+
+        if len(sorted_sequence) != len(self.state.schemas):
+            raise RuntimeError(
+                "A cyclic dependency was detected in the import/export configuration."
+            )
+
+        return [f"{prefix}_{name}" for name in sorted_sequence]
+
+    def _build_dependency_graph(self):
+        dependency_graph = defaultdict(list)
+        for obj_name, depends_on in self.state.dependencies.items():
+            for dependency in depends_on:
+                dependency_graph[dependency].append(obj_name)
+        return dependency_graph
+
+    def _topological_sort(self, dependency_graph):
+        in_degree = {key: 0 for key in self.state.schemas.keys()}
+        for key in dependency_graph:
+            for dep in dependency_graph[key]:
+                in_degree[dep] += 1
+
+        queue = deque([k for k in in_degree if in_degree[k] == 0])
+        sorted_sequence = []
+
+        while queue:
+            current = queue.popleft()
+            sorted_sequence.append(current)
+            for dep in dependency_graph[current]:
+                in_degree[dep] -= 1
+                if in_degree[dep] == 0:
+                    queue.append(dep)
+
+        return sorted_sequence
