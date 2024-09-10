@@ -22,9 +22,11 @@ class BackupManager(Manager):
         )
 
     def generate_snapshot_id(self) -> str:
+        """Generate a unique snapshot ID."""
         return str(uuid.uuid4())
 
     def _generate_service_snapshot_metadata(self, service: Service) -> dict:
+        """Generate metadata for a specific service snapshot."""
         return {
             "name": service.name,
             "type": service.type,
@@ -36,53 +38,88 @@ class BackupManager(Manager):
     def _generate_snapshot_metadata(
         self,
         version: str,
-        description: str = None,
-        created_at: str = None,
-        services: Dict[str, Service] = None,
+        description: Optional[str] = None,
+        created_at: Optional[str] = None,
+        services: Optional[Dict[str, Service]] = None,
     ) -> dict:
-
+        """Generate metadata for a full backup snapshot."""
         return {
             "backup_and_restore_version": version,
             "snapshot_id": self.generate_snapshot_id(),
             "description": description or "Backup of all services",
             "created_at": created_at or datetime.datetime.now().isoformat(),
-            "services": [
-                self._generate_service_snapshot_metadata(service)
-                for service in services.values()
-            ],
+            "services": {
+                service_name: self._generate_service_snapshot_metadata(service)
+                for service_name, service in services.items()
+            },
         }
 
-    def list(service_name: str = None): ...
+    def list(self, service_name: Optional[str] = None):
+        """List available backups."""
+        pass
 
-    def info(snapshot_id: str = None): ...
+    def info(self, snapshot_id: Optional[str] = None):
+        """Retrieve information about a specific backup."""
+        pass
 
-    def get(snapshot_id: str = None): ...
+    def get(self, snapshot_id: Optional[str] = None):
+        """Retrieve a specific backup."""
+        pass
+
+    def _update_service_data(
+        self, metadata: dict, service_name: str, data: str
+    ) -> dict:
+        """Update service data in the metadata."""
+        service_data = metadata["services"].get(service_name, {}).get("data", [])
+        service_data.append(data)
+        metadata["services"][service_name]["data"] = service_data
+        return metadata
 
     def backup(
         self,
-        service_name: str = None,
-        snapshot: bool = False,
+        service_name: Optional[str] = None,
+        snapshot: bool = True,
+        description: Optional[str] = None,
         compressing: bool = False,
-        archive: bool = True,
+        archive_only: bool = True,
     ):
+        """Perform a backup of the specified service(s)."""
         storage_client = self.storage_client
-        __services__ = self.services
+        services_to_backup = self.services
 
         if service_name:
-            # raise an error if service_name is not in services
-            if service_name not in self.services:
-                raise ValueError(f"Service {service_name} not found.")
-            __services__ = {service_name: self.services[service_name]}
+            if service_name not in services_to_backup:
+                raise ValueError(f"Service '{service_name}' not found.")
+            services_to_backup = {service_name: services_to_backup[service_name]}
 
-        metadata = self._generate_snapshot_metadata(
-            version="1.0.0", services=__services__
-        )
+        if snapshot:
+            metadata = self._generate_snapshot_metadata(
+                version="1.0.0", services=services_to_backup, description=description
+            )
+        else:
+            metadata = {}
 
-        for service_name, service in __services__.items():
-            service.backup(storage_client=storage_client, tar=compressing)
-            print(f"Backing up {service_name}... Service backup completed.")
+        for svc_name, service in services_to_backup.items():
+            backup_data = service.backup(
+                storage_client=storage_client,
+                archive_only=archive_only,
+                bucket_name=(
+                    service.name
+                    if not snapshot
+                    else f"{service.state.id}/{service.name}"
+                ),
+                tar=compressing,
+            )
+            if not archive_only:
+                if snapshot:
+                    metadata["services"][svc_name]["data"] = backup_data
+                else:
+                    metadata.setdefault(svc_name, []).append(backup_data)
 
-        metadata_file = f"{metadata['snapshot_id']}_metadata.json"
-        # storage_client.upload(
-        #     bucket_name="", data=json.dumps(metadata), file_name=metadata_file
-        # )
+        if snapshot and archive_only:
+            metadata_file = f"{metadata['snapshot_id']}_metadata.json"
+            storage_client.upload(
+                bucket_name="", data=json.dumps(metadata), file_name=metadata_file
+            )
+        elif not archive_only:
+            return metadata

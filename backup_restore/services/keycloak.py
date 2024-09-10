@@ -141,6 +141,7 @@ class KeycloakAPIClient:
                     },
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
                 )
+                print(f"Authentication response :: {response.json()}")
                 response.raise_for_status()
                 self.token = response.json().get("access_token")
         except httpx.RequestError as e:
@@ -166,6 +167,9 @@ class KeycloakAPIClient:
                     },
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
                 )
+                print(
+                    f"Token introspection response :: {introspection_response.json()}"
+                )
                 introspection_response.raise_for_status()
                 return introspection_response.json().get("active", False)
         except httpx.RequestError as e:
@@ -186,7 +190,9 @@ class KeycloakAPIClient:
                     url=url,
                     headers={"Authorization": f"Bearer {self.token}"},
                 )
+                print(response.json())
                 response.raise_for_status()
+                print(f"GET request to {url} successful :: {response.json()}")
                 return response.json()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 403:
@@ -215,7 +221,9 @@ class KeycloakAPIClient:
                     json=json,
                     headers={"Authorization": f"Bearer {self.token}"},
                 )
+                print(response.json())
                 response.raise_for_status()
+                print(f"POST request to {url} successful :: {response.json()}")
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 403:
                 raise RuntimeError(
@@ -306,7 +314,7 @@ class KeycloakExport(Export):
             print(f"Exporting data from {endpoint}...")
             data = await self.api_client.get(endpoint)
             result = [schema(**item).model_dump() for item in data]
-            if not result:
+            if not result and result != []:
                 raise HTTPException(status_code=500, detail="No data found")
             return ResponseModel(message=success_message, result=result).model_dump()
 
@@ -429,7 +437,7 @@ class KeycloakService(Service):
     def restore(self, storage_client, **kwargs) -> None:
         return super().restore(storage_client, **kwargs)
 
-    def backup(self, storage_client, tar=False) -> None:
+    def backup(self, storage_client, bucket_name, tar=False, archive_only=True) -> None:
         try:
             with TemporaryDirectory(prefix="keycloak_backup_") as temp_dir:
                 print(f"Exporting Keycloak data to {temp_dir}...")
@@ -438,8 +446,16 @@ class KeycloakService(Service):
                     self._create_tar_archive(temp_dir)
                 # this needs refactor, as the storage_client should've already been
                 # initialized with the bucket naming, and we should be able to pass a
-                # locator (service_name) that in theory would correlate to the current snapshot
-                storage_client.upload(bucket_name=self.name, dir=temp_dir, tar=tar)
+                # locator (service_name) that in theory would correlate to the current
+                # snapshot
+                if archive_only:
+                    storage_client.upload(
+                        bucket_name=bucket_name, dir=temp_dir, tar=tar
+                    )
+                else:
+                    # load stored data as single json and returns
+                    return self._load_exported_data(temp_dir)
+
         except Exception as e:
             raise RuntimeError(f"Backup failed: {e}")
 
@@ -447,14 +463,36 @@ class KeycloakService(Service):
         with open(path, "w") as f:
             f.write(json.dumps(data, indent=2))
 
+    def _load_exported_data(self, temp_dir: str):
+        __files__ = os.listdir(temp_dir)
+        data = {}
+        for file in __files__:
+            with open(os.path.join(temp_dir, file), "r") as f:
+                data[file.split(".")[0]] = json.load(f)
+        return data
+
     def _export_data(self, temp_dir: str) -> None:
-        print("Exporting Keycloak data...")
         for object_name, data in self._generate_export_data():
             dump_path = os.path.join(temp_dir, f"{object_name}.json")
             self._dump_to_file(dump_path, data)
 
+    def _to_sync(self, coroutine_function, debug=True):
+        try:
+            loop = asyncio.get_running_loop()
+
+        except RuntimeError:
+            # There is no existing event loop, so we can start our own.
+            return asyncio.run(coroutine_function, debug=debug)
+
+        else:
+            # Enable debug mode
+            loop.set_debug(debug)
+
+            # Run the coroutine and wait for the result.
+            task = loop.create_task(coroutine_function)
+            return asyncio.ensure_future(task, loop=loop)
+
     def _generate_export_data(self):
-        print("Generating export data...")
         _export_sequence = self._build_reconciliation_sequence("_export")
         print(f"Export sequence: {_export_sequence}")
         for method_name in _export_sequence:
@@ -462,10 +500,9 @@ class KeycloakService(Service):
             # handles async method execution
             if inspect.iscoroutinefunction(getattr(self.exporter, method_name)):
                 # run async method in sync context
-                data = asyncio.run(getattr(self.exporter, method_name)())
+                data = self._to_sync(getattr(self.exporter, method_name)())
             else:
                 data = getattr(self.exporter, method_name)()
-            print(f"Exported {object_name} :: {data}")
             yield object_name, data
 
     def _create_tar_archive(self, temp_dir: str) -> None:

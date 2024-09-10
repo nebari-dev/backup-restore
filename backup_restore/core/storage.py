@@ -23,7 +23,12 @@ class StorageClient(ABC):
 
     @abstractmethod
     def upload(
-        self, bucket_name: str, dir: str, tar: bool = False, file_name: str = None
+        self,
+        bucket_name: str,
+        dir: str = None,
+        tar: bool = False,
+        file_name: str = None,
+        data: str = None,
     ):
         pass
 
@@ -94,8 +99,8 @@ class LocalClient(StorageClient):
     def upload(
         self,
         bucket_name: str,
-        # data: str = None,
-        dir: str,
+        dir: str = None,
+        data: str = None,
         tar: bool = False,
         file_name: str = None,
     ):
@@ -109,13 +114,15 @@ class LocalClient(StorageClient):
                     os.path.join(bucket_path, os.path.basename(file_name)), "wb"
                 ) as dest_file:
                     dest_file.write(source_file.read())
-        # if data and file_name:
-        #     with open(
-        #         os.path.join(bucket_path, os.path.basename(file_name)), "w"
-        #     ) as dest_file:
-        #         dest_file.write(data)
-        else:
+        if data and file_name:
+            with open(
+                os.path.join(bucket_path, os.path.basename(file_name)), "w"
+            ) as dest_file:
+                dest_file.write(data)
+        elif dir:
             shutil.copytree(dir, bucket_path, dirs_exist_ok=True)
+        else:
+            raise ValueError("Invalid arguments for upload method")
 
     def download(self, bucket_name: str, dir: str):
         bucket_path = os.path.join(self.base_dir, bucket_name)
@@ -164,10 +171,17 @@ class StorageManager:
         return self.client.list(bucket_name)
 
     def upload(
-        self, bucket_name: str, dir: str, tar: bool = False, file_name: str = None
+        self,
+        bucket_name: str,
+        dir: str = None,
+        tar: bool = False,
+        file_name: str = None,
+        data: str = None,
     ):
         print(f"Uploading to {bucket_name}...")
-        return self.client.upload(bucket_name, dir, tar, file_name)
+        return self.client.upload(
+            bucket_name=bucket_name, dir=dir, tar=tar, file_name=file_name, data=data
+        )
 
     def download(self, bucket_name: str, dir: str):
         return self.client.download(bucket_name, dir)
