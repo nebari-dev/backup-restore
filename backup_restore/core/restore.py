@@ -1,4 +1,3 @@
-# core/restore.py
 from backup_restore.core.base import Manager
 
 

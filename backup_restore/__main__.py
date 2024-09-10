@@ -1,4 +1,3 @@
-# main.py
 import sys
 
 from backup_restore.adapters.api import create_api

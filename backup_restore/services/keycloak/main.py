@@ -1,112 +1,27 @@
-#  services/keycloak.py
 import asyncio
-from collections import defaultdict, deque
 import inspect
 import json
 import os
 import shutil
-from tempfile import TemporaryDirectory
-import uuid
+from collections import defaultdict, deque
 from http.client import HTTPException
-from typing import Any, Dict, List, Optional
+from tempfile import TemporaryDirectory
+from typing import Any, Dict, List
 
 import httpx
-from pydantic import AnyHttpUrl, BaseModel, Field, ValidationError
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, ValidationError
 
-from backup_restore.services.base import Export, Import, Service, State
-
-
-class ClientSchema(BaseModel):
-    client_id: str = Field(None, alias="clientId")
-    name: Optional[str] = None
-    description: Optional[str] = None
-    rootUrl: Optional[str] = Field(None, alias="rootUrl")
-    baseUrl: Optional[str] = Field(None, alias="baseUrl")
-    redirectUris: Optional[List[str]] = Field(
-        default_factory=list, alias="redirectUris"
-    )
-    enabled: bool = True
-
-    class Config:
-        populate_by_name = True
-
-
-class UserSchema(BaseModel):
-    username: str
-    email: Optional[str] = None
-    firstName: Optional[str] = Field(None, alias="firstName")
-    lastName: Optional[str] = Field(None, alias="lastName")
-    enabled: bool = True
-    emailVerified: bool = Field(False, alias="emailVerified")
-    attributes: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
-
-    class Config:
-        populate_by_name = True
-
-
-class GroupSchema(BaseModel):
-    id: Optional[str] = None
-    name: str
-    path: Optional[str] = None
-    attributes: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
-    subGroups: Optional[List["GroupSchema"]] = Field(
-        default_factory=list, alias="subGroups"
-    )
-
-    class Config:
-        populate_by_name = True
-
-
-class RoleSchema(BaseModel):
-    id: Optional[str] = None
-    name: str
-    description: Optional[str] = None
-    composite: bool = False
-    clientRole: bool = Field(False, alias="clientRole")
-    containerId: Optional[str] = Field(None, alias="containerId")
-
-    class Config:
-        populate_by_name = True
-
-
-class IdentityProviderSchema(BaseModel):
-    alias: str
-    displayName: Optional[str] = Field(None, alias="displayName")
-    providerId: str
-    enabled: bool = True
-    trustEmail: bool = Field(False, alias="trustEmail")
-    storeToken: bool = Field(False, alias="storeToken")
-    addReadTokenRoleOnCreate: bool = Field(False, alias="addReadTokenRoleOnCreate")
-    config: Optional[Dict[str, str]] = Field(default_factory=dict)
-
-    class Config:
-        populate_by_name = True
-
-
-class KeycloakSkeleton(State):
-    clients: List[ClientSchema] = Field(default_factory=list)
-    users: List[UserSchema] = Field(default_factory=list, depends_on=["groups"])
-    groups: List[GroupSchema] = Field(default_factory=list)
-    roles: List[RoleSchema] = Field(default_factory=list, depends_on=["clients"])
-    identity_providers: List[IdentityProviderSchema] = Field(default_factory=list)
-    id: Optional[str] = Field(uuid.uuid4(), alias="reference_id", internal=True)
-
-
-class KeycloakAuth(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="KEYCLOAK_")
-    auth_url: AnyHttpUrl = Field(...)
-    realm: str = Field("master")
-    client_id: str = Field("admin-cli")
-    client_secret: str = Field(...)
-    verify_ssl: bool = Field(True)
-
-
-EXCEPTIONS = {
-    httpx.HTTPStatusError: "HTTP Status Error",
-    httpx.RequestError: "Request Error",
-    ValidationError: "Validation Error",
-}
+from backup_restore.services.base import Export, Import, Service
+from backup_restore.services.keycloak.schema import (
+    EXCEPTIONS,
+    ClientSchema,
+    GroupSchema,
+    IdentityProviderSchema,
+    KeycloakAuth,
+    KeycloakSkeleton,
+    RoleSchema,
+    UserSchema,
+)
 
 
 class KeycloakAPIClient:
@@ -141,7 +56,6 @@ class KeycloakAPIClient:
                     },
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
                 )
-                print(f"Authentication response :: {response.json()}")
                 response.raise_for_status()
                 self.token = response.json().get("access_token")
         except httpx.RequestError as e:
@@ -167,9 +81,6 @@ class KeycloakAPIClient:
                     },
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
                 )
-                print(
-                    f"Token introspection response :: {introspection_response.json()}"
-                )
                 introspection_response.raise_for_status()
                 return introspection_response.json().get("active", False)
         except httpx.RequestError as e:
@@ -190,9 +101,7 @@ class KeycloakAPIClient:
                     url=url,
                     headers={"Authorization": f"Bearer {self.token}"},
                 )
-                print(response.json())
                 response.raise_for_status()
-                print(f"GET request to {url} successful :: {response.json()}")
                 return response.json()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 403:
@@ -221,9 +130,7 @@ class KeycloakAPIClient:
                     json=json,
                     headers={"Authorization": f"Bearer {self.token}"},
                 )
-                print(response.json())
                 response.raise_for_status()
-                print(f"POST request to {url} successful :: {response.json()}")
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 403:
                 raise RuntimeError(
@@ -252,7 +159,7 @@ class KeycloakExport(Export):
         self.api_client = api_client
         self.state = state
 
-    async def _export_clients(self) -> dict:
+    async def export_clients(self) -> dict:
         """
         Export client data from Keycloak.
         """
@@ -263,7 +170,7 @@ class KeycloakExport(Export):
             error_message="Failed to export clients",
         )
 
-    async def _export_users(self) -> dict:
+    async def export_users(self) -> dict:
         """
         Export user data from Keycloak.
         """
@@ -274,7 +181,7 @@ class KeycloakExport(Export):
             error_message="Failed to export users",
         )
 
-    async def _export_groups(self) -> dict:
+    async def export_groups(self) -> dict:
         """
         Export group data from Keycloak.
         """
@@ -285,7 +192,7 @@ class KeycloakExport(Export):
             error_message="Failed to export groups",
         )
 
-    async def _export_roles(self) -> dict:
+    async def export_roles(self) -> dict:
         """
         Export role data from Keycloak.
         """
@@ -296,7 +203,7 @@ class KeycloakExport(Export):
             error_message="Failed to export roles",
         )
 
-    async def _export_identity_providers(self) -> dict:
+    async def export_identity_providers(self) -> dict:
         """
         Export identity provider data from Keycloak.
         """
@@ -340,7 +247,7 @@ class KeycloakImport(Import):
         self.api_client = api_client
         self.state = state
 
-    async def _import_clients(self, clients) -> dict:
+    async def import_clients(self, clients: List[ClientSchema]) -> dict:
         return await self._import_data(
             endpoint="/admin/realms/{realm}/clients",
             schema=ClientSchema,
@@ -349,7 +256,7 @@ class KeycloakImport(Import):
             error_message="Failed to import clients",
         )
 
-    async def _import_users(self, users) -> dict:
+    async def import_users(self, users: List[UserSchema]) -> dict:
         return await self._import_data(
             endpoint="/admin/realms/{realm}/users",
             schema=UserSchema,
@@ -358,7 +265,7 @@ class KeycloakImport(Import):
             error_message="Failed to import users",
         )
 
-    async def _import_groups(self, groups) -> dict:
+    async def import_groups(self, groups: List[GroupSchema]) -> dict:
         return await self._import_data(
             endpoint="/admin/realms/{realm}/groups",
             schema=GroupSchema,
@@ -367,7 +274,7 @@ class KeycloakImport(Import):
             error_message="Failed to import groups",
         )
 
-    async def _import_roles(self, roles) -> dict:
+    async def import_roles(self, roles: List[RoleSchema]) -> dict:
         return await self._import_data(
             endpoint="/admin/realms/{realm}/roles",
             schema=RoleSchema,
@@ -376,7 +283,9 @@ class KeycloakImport(Import):
             error_message="Failed to import roles",
         )
 
-    async def _import_identity_providers(self, identity_providers) -> dict:
+    async def import_identity_providers(
+        self, identity_providers: List[IdentityProviderSchema]
+    ) -> dict:
         return await self._import_data(
             endpoint="/admin/realms/{realm}/identity-provider/instances",
             schema=IdentityProviderSchema,
@@ -437,11 +346,13 @@ class KeycloakService(Service):
     def restore(self, storage_client, **kwargs) -> None:
         return super().restore(storage_client, **kwargs)
 
-    def backup(self, storage_client, bucket_name, tar=False, archive_only=True) -> None:
+    def backup(
+        self, storage_client, bucket_name, tar=False, archive_only=True, raw=False
+    ) -> None:
         try:
             with TemporaryDirectory(prefix="keycloak_backup_") as temp_dir:
                 print(f"Exporting Keycloak data to {temp_dir}...")
-                self._export_data(temp_dir)
+                self._export_data(temp_dir=temp_dir, raw=raw)
                 if tar:
                     self._create_tar_archive(temp_dir)
                 # this needs refactor, as the storage_client should've already been
@@ -471,8 +382,8 @@ class KeycloakService(Service):
                 data[file.split(".")[0]] = json.load(f)
         return data
 
-    def _export_data(self, temp_dir: str) -> None:
-        for object_name, data in self._generate_export_data():
+    def _export_data(self, temp_dir: str, raw: bool = False) -> None:
+        for object_name, data in self._generate_export_data(raw=raw):
             dump_path = os.path.join(temp_dir, f"{object_name}.json")
             self._dump_to_file(dump_path, data)
 
@@ -492,8 +403,8 @@ class KeycloakService(Service):
             task = loop.create_task(coroutine_function)
             return asyncio.ensure_future(task, loop=loop)
 
-    def _generate_export_data(self):
-        _export_sequence = self._build_reconciliation_sequence("_export")
+    def _generate_export_data(self, raw: bool = False):
+        _export_sequence = self._build_reconciliation_sequence("export")
         print(f"Export sequence: {_export_sequence}")
         for method_name in _export_sequence:
             object_name = method_name.split("_")[-1]
@@ -503,6 +414,8 @@ class KeycloakService(Service):
                 data = self._to_sync(getattr(self.exporter, method_name)())
             else:
                 data = getattr(self.exporter, method_name)()
+            if raw:
+                data = data.get("result", [])
             yield object_name, data
 
     def _create_tar_archive(self, temp_dir: str) -> None:

@@ -1,8 +1,7 @@
-# core/backups.py
 import datetime
 import json
 import uuid
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 from backup_restore.core.base import (
     ConfigManager,
@@ -27,13 +26,13 @@ class BackupManager(Manager):
 
     def _generate_service_snapshot_metadata(self, service: Service) -> dict:
         """Generate metadata for a specific service snapshot."""
-        return {
-            "name": service.name,
-            "type": service.type,
-            "version": service.version,
-            "priority": service.priority,
-            "data": service.state.id,
-        }
+        return ServiceSnapshotMetadata(
+            name=service.name,
+            type=service.type,
+            version=service.version,
+            priority=service.priority,
+            data=service.state.id,
+        ).model_dump()
 
     def _generate_snapshot_metadata(
         self,
@@ -43,16 +42,16 @@ class BackupManager(Manager):
         services: Optional[Dict[str, Service]] = None,
     ) -> dict:
         """Generate metadata for a full backup snapshot."""
-        return {
-            "backup_and_restore_version": version,
-            "snapshot_id": self.generate_snapshot_id(),
-            "description": description or "Backup of all services",
-            "created_at": created_at or datetime.datetime.now().isoformat(),
-            "services": {
+        return SnapshotMetadata(
+            backup_and_restore_version=version,
+            snapshot_id=self.generate_snapshot_id(),
+            description=description or "Backup of all services",
+            created_at=created_at or datetime.datetime.now().isoformat(),
+            services={
                 service_name: self._generate_service_snapshot_metadata(service)
                 for service_name, service in services.items()
             },
-        }
+        ).model_dump()
 
     def list(self, service_name: Optional[str] = None):
         """List available backups."""
@@ -121,5 +120,13 @@ class BackupManager(Manager):
             storage_client.upload(
                 bucket_name="", data=json.dumps(metadata), file_name=metadata_file
             )
+            return {
+                "message": "Backup completed successfully.",
+                "result": {
+                    "snapshot_id": metadata["snapshot_id"],
+                    "metadata_file": metadata_file,
+                },
+                "error": None,
+            }
         elif not archive_only:
             return metadata

@@ -1,4 +1,3 @@
-# core/base.py
 import json
 import os
 import warnings
@@ -26,7 +25,7 @@ class SnapshotMetadata(BaseModel):
     snapshot_id: str
     description: str
     created_at: str
-    services: List[ServiceSnapshotMetadata]
+    services: Dict[str, ServiceSnapshotMetadata]
 
 
 class ConfigManager:

@@ -1,9 +1,8 @@
-# adapters/api.py
 import inspect
 import os
 from functools import partial, wraps
 
-from fastapi import APIRouter, Depends, FastAPI, Request, Response, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -23,7 +22,7 @@ class ServiceAPIFactory(AdaptersBaseFactory):
         )
 
         def register_route(method: str, method_type: str):
-            route_name = method[len(f"_{method_type}_") :]
+            route_name = method[len(f"{method_type}_") :]
             func = self._get_function(service, method, method_type)
 
             # Determine the HTTP method based on the method type
