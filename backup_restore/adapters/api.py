@@ -99,7 +99,9 @@ def create_api() -> FastAPI:
             content={"detail": custom_errors},
         )
 
-    config_manager = ConfigManager(config_dir=os.environ.get("CONFIG_DIR", "config"))
+    config_manager = ConfigManager(
+        config_dir=os.environ.get("BACKUP_RESTORE_CONFIG_PATH", "config")
+    )
 
     # Add routers for backup and restore
     for manager, prefix in [

@@ -1,5 +1,6 @@
 # main.py
 import sys
+import os
 
 from backup_restore.adapters.api import create_api
 
@@ -14,7 +15,7 @@ def main():
             app="backup_restore.__main__:create_api",
             factory=True,
             host="0.0.0.0",
-            port=8000,
+            port=os.environ.get("BACKUP_RESTORE_SERVER_PORT", 8080),
             reload=True,
         )
 
