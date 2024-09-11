@@ -1,7 +1,8 @@
+import glob
+import json
 import os
 import pathlib
 import shutil
-import asyncio
 from typing import Annotated, Optional, Union, Dict
 from abc import ABC, abstractmethod
 import boto3.exceptions
@@ -19,6 +20,10 @@ class StorageClient(ABC):
 
     @abstractmethod
     def list(self, bucket_name: str):
+        pass
+
+    @abstractmethod
+    def get(object_name: str):
         pass
 
     @abstractmethod
@@ -88,13 +93,30 @@ class LocalClient(StorageClient):
         super().__init__(config)
         self.base_dir = pathlib.Path(config["base_dir"])
 
+    def get(self, snapshot_id: Optional[str] = None):
+        # get metadata for a specific snapshot
+        data = os.path.join(self.base_dir, f"{snapshot_id}_metadata.json")
+        with open(data, "r") as f:
+            return json.loads(f.read())
+
     def list(self, bucket_name: str, prefix: str = "snapshots"):
-        bucket_path = self.base_dir / bucket_name / prefix
-        return [
-            os.path.relpath(os.path.join(root, file), bucket_path)
-            for root, _, files in os.walk(bucket_path)
-            for file in files
-        ]
+        # get all *_metadata.json files in the bucket, return the list of files_names
+        # and their contents limited to the latest 5 files (pagination)
+        # bucket_path = self.base_dir / bucket_name / prefix
+        # return [
+        #     os.path.relpath(os.path.join(root, file), bucket_path)
+        #     for root, _, files in os.walk(bucket_path)
+        #     for file in files
+        # ]
+        files = list(
+            glob.glob(os.path.join(self.base_dir, bucket_name, "*_metadata.json"))
+        )
+        response = {}
+        for file in files:
+            file_name = os.path.basename(file).split("_metadata.json")[0]
+            with open(file, "r") as f:
+                response[file_name] = json.loads(f.read())
+        return response
 
     def upload(
         self,
@@ -166,6 +188,9 @@ class StorageManager:
             return LocalClient(self.config.model_dump())
         else:
             raise ValueError(f"Unsupported storage type: {self.config.type}")
+
+    def get(self, snapshot_id: str):
+        return self.client.get(snapshot_id)
 
     def list(self, bucket_name: str):
         return self.client.list(bucket_name)

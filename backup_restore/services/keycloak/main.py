@@ -343,9 +343,6 @@ class KeycloakService(Service):
         except ValidationError as e:
             raise ValueError(f"Invalid Keycloak configuration: {e}")
 
-    def restore(self, storage_client, **kwargs) -> None:
-        return super().restore(storage_client, **kwargs)
-
     def backup(
         self, storage_client, bucket_name, tar=False, archive_only=True, raw=False
     ) -> None:
@@ -370,16 +367,168 @@ class KeycloakService(Service):
         except Exception as e:
             raise RuntimeError(f"Backup failed: {e}")
 
+    def restore(
+        self, storage_client, bucket_name, snapshot_id=None, dry_run=False, **kwargs
+    ) -> dict:
+        try:
+            with TemporaryDirectory(prefix="keycloak_restore_") as temp_dir:
+                print(f"Restoring Keycloak data from {temp_dir}...")
+
+                # Download and extract the backup data
+                storage_client.download(bucket_name=bucket_name, dir=temp_dir)
+                backup_data = self._load_exported_data(temp_dir)
+
+                # Generate a restoration plan if dry_run is enabled
+                if dry_run:
+                    return self._generate_restore_plan(backup_data)
+
+                # Execute restore in the correct sequence
+                self._restore_data(backup_data)
+
+        except Exception as e:
+            raise RuntimeError(f"Restore failed: {e}")
+
+    def _generate_restore_plan(self, backup_data: dict) -> dict:
+        """Generate a detailed plan of actions for the restore."""
+        plan = {}
+        print(backup_data)
+        for object_name, data in self._generate_restore_data(backup_data):
+            print(f"Current object name: {object_name}")
+            current_data = self._generate_export_data(raw=True)
+            print(f"is current data available? {bool(current_data)}")
+            diff = self._calculate_diff(object_name, current_data, data)
+            if not diff:
+                plan[object_name] = "No changes will be performed."
+            else:
+                plan[object_name] = {
+                    "diff": diff,
+                    "action": (
+                        "Conflicting information present. Will apply changes as specified."
+                        if diff
+                        else "No changes required."
+                    ),
+                }
+        return plan
+
+    def _get_current_data(self, object_name: str, prefix: str) -> list:
+        """Retrieve the current state of the data from Keycloak."""
+        method_name = f"{prefix}_{object_name}"
+        if hasattr(self.exporter, method_name):
+            method = getattr(self.exporter, method_name)
+            if inspect.iscoroutinefunction(method):
+                return self._to_sync(method()).get("result", [])
+            else:
+                return method().get("result", [])
+        return []
+
+    def _calculate_diff(
+        self, object_name: str, current_data: list, backup_data: list
+    ) -> dict:
+        """Calculate the difference between current data and backup data, considering object-specific logic."""
+        added = []
+        removed = []
+
+        for item in backup_data:
+            conflict_action = self._handle_conflict(object_name, item, current_data)
+            if conflict_action == "add":
+                added.append(item)
+
+        for item in current_data:
+            if not self._is_in_backup(item, backup_data, object_name):
+                removed.append(item)
+
+        return {"added": added, "removed": removed}
+
+    def _is_in_backup(self, item: dict, backup_data: list, object_name: str) -> bool:
+        """Check if an item from current data exists in the backup data."""
+        for backup_item in backup_data:
+            if self._handle_conflict(object_name, backup_item, [item]) == "skip":
+                return True
+        return False
+
+    def _handle_conflict(self, object_name: str, item: dict, current_data: list) -> str:
+        """Handle conflicts based on the object type."""
+        print(f"object name :: {object_name}")
+        if object_name == "clients":
+            return self._handle_client_conflict(item, current_data)
+        elif object_name == "users":
+            return self._handle_user_conflict(item, current_data)
+        elif object_name == "groups":
+            return self._handle_group_conflict(item, current_data)
+        elif object_name == "roles":
+            return self._handle_role_conflict(item, current_data)
+        elif object_name == "identity_providers":
+            return self._handle_identity_provider_conflict(item, current_data)
+        else:
+            return "add"
+
+    def _handle_client_conflict(self, item: dict, current_data: list) -> str:
+        """Handle conflicts for ClientSchema."""
+        for current_item in current_data:
+            if item.get("client_id") == current_item.get("client_id"):
+                if item == current_item:
+                    return "skip"  # Exact match, skip
+                else:
+                    return "update"  # Conflict detected, update needed
+        return "add"  # New item, add
+
+    def _handle_user_conflict(self, item: dict, current_data: list) -> str:
+        """Handle conflicts for UserSchema."""
+        for current_item in current_data:
+            if item.get("username") == current_item.get("username"):
+                if item == current_item:
+                    return "skip"  # Exact match, skip
+                elif item.get("email") == current_item.get("email"):
+                    return "skip"  # Skip if email is the same but other fields differ
+                else:
+                    return "update"  # Conflict detected, update needed
+        return "add"  # New item, add
+
+    def _handle_group_conflict(self, item: dict, current_data: list) -> str:
+        """Handle conflicts for GroupSchema."""
+        for current_item in current_data:
+            if item.get("name") == current_item.get("name"):
+                if item == current_item:
+                    print(
+                        f"Item {item} matches current item {current_item}, skipping..."
+                    )
+                    return "skip"  # Exact match, skip
+                else:
+                    return "update"  # Conflict detected, update needed
+        return "add"  # New item, add
+
+    def _handle_role_conflict(self, item: dict, current_data: list) -> str:
+        """Handle conflicts for RoleSchema."""
+        for current_item in current_data:
+            if item.get("name") == current_item.get("name"):
+                if item == current_item:
+                    return "skip"  # Exact match, skip
+                else:
+                    return "update"  # Conflict detected, update needed
+        return "add"  # New item, add
+
+    def _handle_identity_provider_conflict(self, item: dict, current_data: list) -> str:
+        """Handle conflicts for IdentityProviderSchema."""
+        for current_item in current_data:
+            if item.get("alias") == current_item.get("alias"):
+                if item == current_item:
+                    return "skip"  # Exact match, skip
+                else:
+                    return "update"  # Conflict detected, update needed
+        return "add"  # New item, add
+
     def _dump_to_file(self, path: str, data: dict) -> None:
         with open(path, "w") as f:
             f.write(json.dumps(data, indent=2))
 
     def _load_exported_data(self, temp_dir: str):
-        __files__ = os.listdir(temp_dir)
+        """Load the exported data from the temporary directory."""
+        files = os.listdir(temp_dir)
         data = {}
-        for file in __files__:
+        for file in files:
             with open(os.path.join(temp_dir, file), "r") as f:
-                data[file.split(".")[0]] = json.load(f)
+                __data__ = json.loads(f.read())
+                data[file.split(".")[0]] = __data__.get("result", [])
         return data
 
     def _export_data(self, temp_dir: str, raw: bool = False) -> None:
@@ -387,7 +536,32 @@ class KeycloakService(Service):
             dump_path = os.path.join(temp_dir, f"{object_name}.json")
             self._dump_to_file(dump_path, data)
 
+    def _restore_data(self, backup_data: dict) -> None:
+        """Restore data using the KeycloakImport class."""
+        for object_name, data in self._generate_restore_data(backup_data):
+            if data:
+                method_name = f"import_{object_name}"
+                if hasattr(self.importer, method_name):
+                    method = getattr(self.importer, method_name)
+                    if inspect.iscoroutinefunction(method):
+                        self._to_sync(method(data))
+                    else:
+                        method(data)
+                else:
+                    print(f"No import method found for {object_name}. Skipping...")
+
+    def _generate_restore_data(self, backup_data: dict):
+        """Generate restore data in the correct sequence."""
+        restore_sequence = self._build_reconciliation_sequence("import")
+        print(f"Restore sequence: {restore_sequence}")
+        for method_name in restore_sequence:
+            print(f"method_name :: {method_name}")
+            object_name = method_name.split("import_")[-1]
+            data = backup_data.get(object_name, [])
+            yield method_name, data
+
     def _to_sync(self, coroutine_function, debug=True):
+        """Helper to run async methods synchronously."""
         try:
             loop = asyncio.get_running_loop()
 
@@ -425,6 +599,7 @@ class KeycloakService(Service):
             raise RuntimeError(f"Failed to create tar archive: {e}")
 
     def _build_reconciliation_sequence(self, prefix: str) -> List[str]:
+        """Builds the reconciliation sequence for import/export."""
         dependency_graph = self._build_dependency_graph()
         sorted_sequence = self._topological_sort(dependency_graph)
 
@@ -436,6 +611,7 @@ class KeycloakService(Service):
         return [f"{prefix}_{name}" for name in sorted_sequence]
 
     def _build_dependency_graph(self):
+        """Build the dependency graph from the state object."""
         dependency_graph = defaultdict(list)
         for obj_name, depends_on in self.state.dependencies.items():
             for dependency in depends_on:
@@ -443,6 +619,7 @@ class KeycloakService(Service):
         return dependency_graph
 
     def _topological_sort(self, dependency_graph):
+        """Perform a topological sort on the dependency graph."""
         in_degree = {key: 0 for key in self.state.schemas.keys()}
         for key in dependency_graph:
             for dep in dependency_graph[key]:

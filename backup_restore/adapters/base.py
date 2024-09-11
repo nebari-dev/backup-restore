@@ -8,6 +8,12 @@ class AdaptersBaseFactory:
         self.operation = operation
 
     def _get_methods(self, service, method_type: str, prefix: str = ""):
+        if method_type == "root":
+            return [
+                method
+                for method in dir(service)
+                if not method.startswith("_") and callable(getattr(service, method))
+            ]
         if method_type == "export":
             start_with = f"{prefix}{method_type}"
             return [

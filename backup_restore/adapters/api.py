@@ -80,6 +80,16 @@ class ServiceAPIFactory(AdaptersBaseFactory):
             tags=[self.operation],
         )
 
+        for manager_method in self._get_methods(self.manager, method_type="root"):
+            if manager_method.startswith(self.operation):
+                continue
+            main_router.add_api_route(
+                f"/{manager_method}",
+                getattr(self.manager, manager_method),
+                methods=["GET"],
+                tags=[self.operation],
+            )
+
         for service_name, service in self.services.items():
             service_router = self._create_service_router(service_name, service)
             main_router.include_router(service_router)

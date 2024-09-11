@@ -20,7 +20,7 @@ class BackupManager(Manager):
             config=config_manager.get_config_by_service_name("storage")
         )
 
-    def generate_snapshot_id(self) -> str:
+    def _generate_snapshot_id(self) -> str:
         """Generate a unique snapshot ID."""
         return str(uuid.uuid4())
 
@@ -44,7 +44,7 @@ class BackupManager(Manager):
         """Generate metadata for a full backup snapshot."""
         return SnapshotMetadata(
             backup_and_restore_version=version,
-            snapshot_id=self.generate_snapshot_id(),
+            snapshot_id=self._generate_snapshot_id(),
             description=description or "Backup of all services",
             created_at=created_at or datetime.datetime.now().isoformat(),
             services={
@@ -53,17 +53,13 @@ class BackupManager(Manager):
             },
         ).model_dump()
 
-    def list(self, service_name: Optional[str] = None):
+    def list(self):
         """List available backups."""
-        pass
+        return self.storage_client.list("")
 
-    def info(self, snapshot_id: Optional[str] = None):
-        """Retrieve information about a specific backup."""
-        pass
-
-    def get(self, snapshot_id: Optional[str] = None):
-        """Retrieve a specific backup."""
-        pass
+    def describe(self, snapshot_id: Optional[str] = None):
+        """Retrieve information about a specific snapshot."""
+        return self.storage_client.get(snapshot_id=snapshot_id)
 
     def _update_service_data(
         self, metadata: dict, service_name: str, data: str
@@ -105,7 +101,7 @@ class BackupManager(Manager):
                 bucket_name=(
                     service.name
                     if not snapshot
-                    else f"{service.state.id}/{service.name}"
+                    else f"{metadata['snapshot_id']}/{service.name}"
                 ),
                 tar=compressing,
             )
