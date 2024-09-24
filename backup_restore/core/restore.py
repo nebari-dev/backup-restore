@@ -1,3 +1,4 @@
+# adapters/restore.py
 from typing import Optional
 
 from backup_restore.core.base import ConfigManager, Manager, SnapshotMetadata

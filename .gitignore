@@ -162,7 +162,7 @@ cython_debug/
 #.idea/
 
 # Development configuration
-_config/*
-.config/*
-_data/*
-.data/*
+_config
+.config
+_data
+.data

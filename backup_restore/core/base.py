@@ -1,3 +1,4 @@
+# adapters/base.py
 import json
 import os
 import warnings

@@ -1,3 +1,4 @@
+# adapters/base.py
 from backup_restore.core.base import Manager
 
 
