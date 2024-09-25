@@ -1,9 +1,8 @@
-# adapters/api.py
 import inspect
 import os
-from functools import partial
+from functools import partial, wraps
 
-from fastapi import APIRouter, Depends, FastAPI, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -23,7 +22,7 @@ class ServiceAPIFactory(AdaptersBaseFactory):
         )
 
         def register_route(method: str, method_type: str):
-            route_name = method[len(f"_{method_type}_") :]
+            route_name = method[len(f"{method_type}_") :]
             func = self._get_function(service, method, method_type)
 
             # Determine the HTTP method based on the method type
@@ -61,13 +60,35 @@ class ServiceAPIFactory(AdaptersBaseFactory):
     def create_main_router(self) -> APIRouter:
         main_router = APIRouter()
 
+        def background_task_wrapper(func):
+            @wraps(func)
+            def wrapper(
+                *args, background_tasks: BackgroundTasks = BackgroundTasks(), **kwargs
+            ):
+                # Pass along all original arguments and inject BackgroundTasks
+                background_tasks.add_task(func, *args, **kwargs)
+                return {"status": 202}
+
+            return wrapper
+
         # Register root route from the manager
         main_router.add_api_route(
             "/",
+            # background_task_wrapper(getattr(self.manager, self.operation)),
             getattr(self.manager, self.operation),
             methods=["POST"],
             tags=[self.operation],
         )
+
+        for manager_method in self._get_methods(self.manager, method_type="root"):
+            if manager_method.startswith(self.operation):
+                continue
+            main_router.add_api_route(
+                f"/{manager_method}",
+                getattr(self.manager, manager_method),
+                methods=["GET"],
+                tags=[self.operation],
+            )
 
         for service_name, service in self.services.items():
             service_router = self._create_service_router(service_name, service)

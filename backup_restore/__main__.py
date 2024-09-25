@@ -1,4 +1,3 @@
-# main.py
 import sys
 
 from backup_restore.adapters.api import create_api
@@ -15,6 +14,7 @@ def main():
             factory=True,
             host="0.0.0.0",
             port=8000,
+            log_level="debug",
             reload=True,
         )
 

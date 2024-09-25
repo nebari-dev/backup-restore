@@ -1,5 +1,5 @@
 # services/__init__.py
 
-from .keycloak import KeycloakService
+from .keycloak.main import KeycloakService
 
 __all__ = ["KeycloakService"]

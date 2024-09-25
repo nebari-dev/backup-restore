@@ -1,4 +1,3 @@
-# adapters/base.py
 from backup_restore.core.base import Manager
 
 
@@ -8,18 +7,26 @@ class AdaptersBaseFactory:
         self.services = self.manager.services
         self.operation = operation
 
-    def _get_methods(self, service, method_type: str):
+    def _get_methods(self, service, method_type: str, prefix: str = ""):
+        if method_type == "root":
+            return [
+                method
+                for method in dir(service)
+                if not method.startswith("_") and callable(getattr(service, method))
+            ]
         if method_type == "export":
+            start_with = f"{prefix}{method_type}"
             return [
                 method
                 for method in dir(service.exporter)
-                if method.startswith("_export_")
+                if method.startswith(start_with)
             ]
         elif method_type == "import":
+            start_with = f"{prefix}{method_type}"
             return [
                 method
                 for method in dir(service.importer)
-                if method.startswith("_import_")
+                if method.startswith(start_with)
             ]
         else:
             raise ValueError("Invalid method type")
