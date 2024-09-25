@@ -1,4 +1,3 @@
-# adapters/api.py
 import inspect
 import os
 from functools import partial, wraps

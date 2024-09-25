@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "backup_restore"
+version = "0.1.0"
+description = "A backup and restore utility for Nebari ecosystem"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "BSD-3-Clause"
+authors = [
+    { name = "Nebari development team", email = "internal-it@quansight.com" },
+]
+
+dependencies = [
+    "uvicorn",
+    "fastapi",
+    "typer",
+    "requests",
+    "pydantic-settings",
+    "httpx",
+    "pydantic==2.4.2",
+    "boto3==1.34.63",
+]
+
+[project.scripts]
+backup-restore = "backup_restore.__main__:main"

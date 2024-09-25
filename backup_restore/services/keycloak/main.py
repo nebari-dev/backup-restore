@@ -1,4 +1,3 @@
-# services/keycloak/main.py
 import asyncio
 import inspect
 import json
@@ -468,22 +467,22 @@ class KeycloakService(Service):
         for current_item in current_data:
             if item.get("client_id") == current_item.get("client_id"):
                 if item == current_item:
-                    return "skip"  # Exact match, skip
+                    return "skip"
                 else:
-                    return "update"  # Conflict detected, update needed
-        return "add"  # New item, add
+                    return "update"
+        return "add"
 
     def _handle_user_conflict(self, item: dict, current_data: list) -> str:
         """Handle conflicts for UserSchema."""
         for current_item in current_data:
             if item.get("username") == current_item.get("username"):
                 if item == current_item:
-                    return "skip"  # Exact match, skip
+                    return "skip"
                 elif item.get("email") == current_item.get("email"):
-                    return "skip"  # Skip if email is the same but other fields differ
+                    return "skip"
                 else:
-                    return "update"  # Conflict detected, update needed
-        return "add"  # New item, add
+                    return "update"
+        return "add"
 
     def _handle_group_conflict(self, item: dict, current_data: list) -> str:
         """Handle conflicts for GroupSchema."""
@@ -493,30 +492,30 @@ class KeycloakService(Service):
                     print(
                         f"Item {item} matches current item {current_item}, skipping..."
                     )
-                    return "skip"  # Exact match, skip
+                    return "skip"
                 else:
-                    return "update"  # Conflict detected, update needed
-        return "add"  # New item, add
+                    return "update"
+        return "add"
 
     def _handle_role_conflict(self, item: dict, current_data: list) -> str:
         """Handle conflicts for RoleSchema."""
         for current_item in current_data:
             if item.get("name") == current_item.get("name"):
                 if item == current_item:
-                    return "skip"  # Exact match, skip
+                    return "skip"
                 else:
-                    return "update"  # Conflict detected, update needed
-        return "add"  # New item, add
+                    return "update"
+        return "add"
 
     def _handle_identity_provider_conflict(self, item: dict, current_data: list) -> str:
         """Handle conflicts for IdentityProviderSchema."""
         for current_item in current_data:
             if item.get("alias") == current_item.get("alias"):
                 if item == current_item:
-                    return "skip"  # Exact match, skip
+                    return "skip"
                 else:
-                    return "update"  # Conflict detected, update needed
-        return "add"  # New item, add
+                    return "update"
+        return "add"
 
     def _dump_to_file(self, path: str, data: dict) -> None:
         with open(path, "w") as f:
@@ -565,16 +564,11 @@ class KeycloakService(Service):
         """Helper to run async methods synchronously."""
         try:
             loop = asyncio.get_running_loop()
-
         except RuntimeError:
-            # There is no existing event loop, so we can start our own.
             return asyncio.run(coroutine_function, debug=debug)
 
         else:
-            # Enable debug mode
             loop.set_debug(debug)
-
-            # Run the coroutine and wait for the result.
             task = loop.create_task(coroutine_function)
             return asyncio.ensure_future(task, loop=loop)
 
@@ -585,7 +579,6 @@ class KeycloakService(Service):
             object_name = method_name.split("_")[-1]
             # handles async method execution
             if inspect.iscoroutinefunction(getattr(self.exporter, method_name)):
-                # run async method in sync context
                 data = self._to_sync(getattr(self.exporter, method_name)())
             else:
                 data = getattr(self.exporter, method_name)()
@@ -619,6 +612,7 @@ class KeycloakService(Service):
                 dependency_graph[dependency].append(obj_name)
         return dependency_graph
 
+    # TODO: This needs to be changed to use the inbuilt TopologicalSorter
     def _topological_sort(self, dependency_graph):
         """Perform a topological sort on the dependency graph."""
         in_degree = {key: 0 for key in self.state.schemas.keys()}

@@ -1,18 +1,18 @@
-# adapters/storage.py
 import glob
 import json
 import os
 import pathlib
 import shutil
-from typing import Annotated, Optional, Union, Dict
 from abc import ABC, abstractmethod
+from typing import Annotated, Dict, Optional, Union
+
+import aiofiles
+import boto3
 import boto3.exceptions
 import boto3.s3
-from pydantic import BaseModel, DirectoryPath, constr
-import boto3
 import botocore
-import aiofiles
 from aioboto3 import Session
+from pydantic import BaseModel, DirectoryPath, constr
 
 
 class StorageClient(ABC):
@@ -101,14 +101,6 @@ class LocalClient(StorageClient):
             return json.loads(f.read())
 
     def list(self, bucket_name: str, prefix: str = "snapshots"):
-        # get all *_metadata.json files in the bucket, return the list of files_names
-        # and their contents limited to the latest 5 files (pagination)
-        # bucket_path = self.base_dir / bucket_name / prefix
-        # return [
-        #     os.path.relpath(os.path.join(root, file), bucket_path)
-        #     for root, _, files in os.walk(bucket_path)
-        #     for file in files
-        # ]
         files = list(
             glob.glob(os.path.join(self.base_dir, bucket_name, "*_metadata.json"))
         )

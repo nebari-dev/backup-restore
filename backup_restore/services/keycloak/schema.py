@@ -1,5 +1,3 @@
-# services/keycloak/schema.py
-
 import uuid
 from typing import Dict, List, Optional
 
