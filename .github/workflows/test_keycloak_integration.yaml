@@ -1,0 +1,80 @@
+name: Test Keycloak Integration
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      keycloak:
+        image: quay.io/keycloak/keycloak:22.0.1
+        ports:
+          - 8080:8080
+        options: >-
+          --health-cmd "curl -f http://localhost:8080/auth/realms/master || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --name keycloak
+        env:
+          KEYCLOAK_ADMIN: admin
+          KEYCLOAK_ADMIN_PASSWORD: admin
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest python-keycloak
+
+      - name: Wait for Keycloak to be ready
+        run: |
+          echo "Waiting for Keycloak..."
+          for i in {1..10}; do
+            if curl -s http://localhost:8080/auth/realms/master > /dev/null; then
+              echo "Keycloak is up."
+              break
+            else
+              echo "Keycloak not ready yet..."
+              sleep 5
+            fi
+          done
+
+      - name: Set up Keycloak realm and client
+        run: python scripts/setup_keycloak.py
+        env:
+          KEYCLOAK_SERVER_URL: http://localhost:8080/auth/
+          KEYCLOAK_ADMIN_USERNAME: admin
+          KEYCLOAK_ADMIN_PASSWORD: admin
+          KEYCLOAK_REALM: test
+          KEYCLOAK_CLIENT_ID: my-client
+          KEYCLOAK_CLIENT_SECRET: my-client-secret
+
+      - name: Run FastAPI application in the background
+        run: uvicorn main:app --host 0.0.0.0 --port 8000 &
+        env:
+          KEYCLOAK_SERVER_URL: http://localhost:8080/auth/
+          KEYCLOAK_REALM: test
+          KEYCLOAK_CLIENT_ID: my-client
+          KEYCLOAK_CLIENT_SECRET: my-client-secret
+
+      - name: Install backup-restore server
+        run: |
+          pip install -e .
+
+      - name: Start service for backup-restore server
+        run: |
+          backup-restore --standalone &
+
+      - name: Run tests
+        run: pytest tests/keycloak/
