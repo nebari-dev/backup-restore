@@ -96,5 +96,15 @@ jobs:
           KEYCLOAK_CLIENT_ID: my-client
           KEYCLOAK_CLIENT_SECRET: my-client-secret
 
+      - name: Setup keycloak mock state
+        run: python .github/scripts/setup_keycloak_mock.py
+        env:
+          KEYCLOAK_SERVER_URL: http://localhost:8080/
+          KEYCLOAK_ADMIN_USERNAME: admin
+          KEYCLOAK_ADMIN_PASSWORD: admin
+          KEYCLOAK_REALM: test
+          KEYCLOAK_CLIENT_ID: my-client
+          KEYCLOAK_CLIENT_SECRET: my-client-secret
+
       - name: Run tests
         run: pytest tests/keycloak/
