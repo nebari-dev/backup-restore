@@ -1,0 +1,110 @@
+name: Test Keycloak Integration
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Build Keycloak Docker image
+        run: docker build -t keycloak-custom -f .github/dockerfiles/Dockerfile.keycloak .
+
+      - name: Create Docker network
+        run: docker network create test-network
+
+      - name: Start Postgres container
+        run: |
+          docker run -d \
+            --name postgres \
+            --network test-network \
+            -e POSTGRES_DB=keycloak \
+            -e POSTGRES_USER=keycloak \
+            -e POSTGRES_PASSWORD=keycloak \
+            postgres:latest
+
+      - name: Wait for Postgres to be ready
+        run: |
+          echo "Waiting for Postgres..."
+          for i in {1..10}; do
+            if docker exec postgres pg_isready -U keycloak; then
+              echo "Postgres is ready."
+              break
+            else
+              echo "Postgres not ready yet..."
+              sleep 5
+            fi
+          done
+
+      - name: Start Keycloak container
+        run: |
+          docker run -d \
+            --name keycloak \
+            --network test-network \
+            -p 8080:8080 \
+            -e KC_HOSTNAME=localhost \
+            -e KC_HOSTNAME_PORT=8080 \
+            -e KC_HOSTNAME_STRICT_BACKCHANNEL=false \
+            -e KC_HTTP_ENABLED=true \
+            -e KC_HOSTNAME_STRICT_HTTPS=false \
+            -e KEYCLOAK_ADMIN=admin \
+            -e KEYCLOAK_ADMIN_PASSWORD=admin \
+            -e KC_DB=postgres \
+            -e KC_DB_URL=jdbc:postgresql://postgres/keycloak \
+            -e KC_DB_USERNAME=keycloak \
+            -e KC_DB_PASSWORD=keycloak \
+            keycloak-custom \
+            start-dev
+
+      - name: Wait for Keycloak to be ready
+        run: |
+          echo "Waiting for Keycloak..."
+          for i in {1..10}; do
+            if curl -s http://localhost:8080/auth/realms/master > /dev/null; then
+              echo "Keycloak is up."
+              break
+            else
+              echo "Keycloak not ready yet..."
+              sleep 5
+            fi
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest python-keycloak
+
+      - name: Set up Keycloak realm and client
+        run: python .github/scripts/setup_keycloak_client.py
+        env:
+          KEYCLOAK_SERVER_URL: http://localhost:8080/
+          KEYCLOAK_ADMIN_USERNAME: admin
+          KEYCLOAK_ADMIN_PASSWORD: admin
+          KEYCLOAK_REALM: test
+          KEYCLOAK_CLIENT_ID: my-client
+          KEYCLOAK_CLIENT_SECRET: my-client-secret
+
+      - name: Setup keycloak mock state
+        run: python .github/scripts/setup_keycloak_mock.py
+        env:
+          KEYCLOAK_SERVER_URL: http://localhost:8080/
+          KEYCLOAK_ADMIN_USERNAME: admin
+          KEYCLOAK_ADMIN_PASSWORD: admin
+          KEYCLOAK_REALM: test
+          KEYCLOAK_CLIENT_ID: my-client
+          KEYCLOAK_CLIENT_SECRET: my-client-secret
+
+      - name: Run tests
+        run: pytest tests/keycloak/
