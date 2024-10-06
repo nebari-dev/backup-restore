@@ -59,7 +59,7 @@ jobs:
             -e KC_DB_URL=jdbc:postgresql://postgres/keycloak \
             -e KC_DB_USERNAME=keycloak \
             -e KC_DB_PASSWORD=keycloak \
-            keycloak-custom
+            keycloak-custom \
             start-dev
 
       - name: Wait for Keycloak to be ready
