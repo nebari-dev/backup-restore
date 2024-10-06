@@ -60,6 +60,7 @@ jobs:
             -e KC_DB_USERNAME=keycloak \
             -e KC_DB_PASSWORD=keycloak \
             keycloak-custom
+            - start-dev
 
       - name: Wait for Keycloak to be ready
         run: |
@@ -84,11 +85,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest python-keycloak
-
-      - name: Test access to runner with tmate
-        uses: mxschmitt/action-tmate@v3
-        with:
-          follow: true
 
       - name: Set up Keycloak realm and client
         run: python .github/scripts/setup_keycloak.py
