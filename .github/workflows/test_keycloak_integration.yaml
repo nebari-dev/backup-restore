@@ -86,7 +86,7 @@ jobs:
           pip install pytest python-keycloak
 
       - name: Set up Keycloak realm and client
-        run: python scripts/setup_keycloak.py
+        run: python .github/scripts/setup_keycloak.py
         env:
           KEYCLOAK_SERVER_URL: http://localhost:8080/
           KEYCLOAK_ADMIN_USERNAME: admin
@@ -95,5 +95,5 @@ jobs:
           KEYCLOAK_CLIENT_ID: my-client
           KEYCLOAK_CLIENT_SECRET: my-client-secret
 
-      # - name: Run tests
-      #   run: pytest tests/
+      - name: Run tests
+        run: pytest tests/keycloak/
