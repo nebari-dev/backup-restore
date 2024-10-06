@@ -20,24 +20,6 @@ keycloak_admin = KeycloakAdmin(
 )
 
 
-# Create a client
-def create_client(client_id, secret):
-    keycloak_admin.create_client(
-        {
-            "clientId": client_id,
-            "secret": secret,
-            "enabled": True,
-            "publicClient": False,
-            "protocol": "openid-connect",
-            "redirectUris": ["http://localhost:8000/*"],
-            "webOrigins": ["*"],
-        }
-    )
-
-
-create_client(KEYCLOAK_CLIENT_ID, KEYCLOAK_CLIENT_SECRET)
-
-
 # Create users with additional attributes
 def create_user(username: str, first_name: str, last_name: str, email: str):
     keycloak_admin.create_user(
