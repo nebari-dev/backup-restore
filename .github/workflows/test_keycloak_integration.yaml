@@ -85,6 +85,11 @@ jobs:
           pip install -r requirements.txt
           pip install pytest python-keycloak
 
+      - name: Test access to runner with tmate
+        uses: mxschmitt/action-tmate@v3
+        with:
+          follow: true
+
       - name: Set up Keycloak realm and client
         run: python .github/scripts/setup_keycloak.py
         env:
