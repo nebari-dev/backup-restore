@@ -60,7 +60,7 @@ jobs:
             -e KC_DB_USERNAME=keycloak \
             -e KC_DB_PASSWORD=keycloak \
             keycloak-custom
-            - start-dev
+            start-dev
 
       - name: Wait for Keycloak to be ready
         run: |
